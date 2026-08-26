@@ -467,6 +467,12 @@ def resolve_build(req: "BuildRequest") -> dict:
             full_update_cmd="zypper -n dup --auto-agree-with-licenses && zypper -n clean || true",
             grub_cmd=SUSE_GRUB,
         )
+        # openSUSE JeOS images show an interactive firstboot TUI that blocks
+        # login and thus the boot test — cloud-init handles config instead
+        ev["cleanup_cmds"] = CLEANUP_CMDS + [
+            "--run-command",
+            "systemctl disable jeos-firstboot 2>/dev/null; "
+            "systemctl mask jeos-firstboot 2>/dev/null; true"]
     else:
         major = req.version.split(".")[0]
         ev.update(
