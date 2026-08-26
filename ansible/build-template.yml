@@ -149,9 +149,9 @@
       ansible.builtin.set_fact:
         vc_argv: "{{ vc_argv + [
             '--upload', playbook_dir ~ '/../assets/cloud/99-cloudstack.cfg:/etc/cloud/cloud.cfg.d/99-cloudstack.cfg',
-            '--upload', playbook_dir ~ '/../assets/cloudstack/set-guest-password:/usr/local/bin/cloudstack-set-guest-password',
+            '--upload', playbook_dir ~ '/../assets/cloudstack/set-guest-sshkey-password:/usr/local/bin/cloudstack-set-guest-sshkey-password',
             '--upload', playbook_dir ~ '/../assets/cloudstack/cloudstack-password.service:/etc/systemd/system/cloudstack-password.service',
-            '--run-command', 'chmod 755 /usr/local/bin/cloudstack-set-guest-password',
+            '--run-command', 'chmod 755 /usr/local/bin/cloudstack-set-guest-sshkey-password',
             '--run-command', 'systemctl enable cloudstack-password.service qemu-guest-agent'
           ] }}"
 
