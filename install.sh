@@ -78,16 +78,18 @@ if [[ $SKIP_PKGS == 1 ]]; then
 else
     log "installing system packages..."
     if [[ $FAMILY == rpm ]]; then
-        dnf -y install curl rsync qemu-img libguestfs-tools \
-            ansible-core python3 python3-pip >/dev/null \
-            || dnf -y install curl rsync qemu-img libguestfs-tools python3 python3-pip >/dev/null
+        # EL9 provides 'libguestfs-tools'; EL10+ renamed it to 'guestfs-tools'.
+        base="curl rsync qemu-img ansible-core python3 python3-pip"
+        dnf -y install $base libguestfs-tools qemu-kvm >/dev/null 2>&1 \
+            || dnf -y install $base guestfs-tools qemu-kvm >/dev/null 2>&1 \
+            || dnf -y install $base
     else
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -qq >/dev/null
         apt-get -y install curl rsync qemu-utils libguestfs-tools \
-            ansible-core python3 python3-venv python3-pip >/dev/null \
-            || apt-get -y install curl rsync qemu-utils libguestfs-tools \
-               python3 python3-venv python3-pip >/dev/null
+            qemu-system-x86 ansible-core python3 python3-venv python3-pip >/dev/null \
+            || apt-get -y install curl rsync qemu-utils \
+               ansible-core python3 python3-venv python3-pip >/dev/null
     fi
     for c in curl qemu-img virt-customize virt-sysprep virt-resize python3; do
         command -v "$c" >/dev/null 2>&1 || die "install failed: '$c' still missing — check your distro mirrors"
@@ -98,8 +100,10 @@ fi
 # -------------------------------------------------------------- deploy
 log "deploying project to $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
-EXCLUDES=(--exclude 'venv' --exclude 'server/logs' --exclude 'server/data.db'
-          --exclude 'server/work' --exclude '*.pyc')
+EXCLUDES=(--exclude '.git' --exclude 'venv' --exclude '.venv'
+          --exclude 'server/logs' --exclude 'server/data.db'
+          --exclude 'server/work' --exclude '__pycache__' --exclude '*.pyc'
+          --exclude '*.qcow2' --exclude '*.img' --exclude '*.raw' --exclude '*.iso')
 if [[ $UPGRADE == 1 ]]; then
     info "upgrade mode — preserving config/, cache/, output/ and history"
     EXCLUDES+=(--exclude 'config' --exclude 'cache' --exclude 'output')
