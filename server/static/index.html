@@ -487,10 +487,15 @@ async function pollLog() {
 
 async function refreshAudit() {
   let rows;
-  try { rows = await api('/api/audit?limit=300'); } catch(e) { return; }
-  const tone = a => a.action.includes('.failed') ? 'failed'
-              : a.action.includes('.success') ? 'success'
-              : a.action.includes('.started')||a.action.includes('downloading') ? 'running'
+  try { rows = await api('/api/audit?limit=300'); }
+  catch(e) {
+    $('audit-body').innerHTML =
+      `<tr><td colspan="4" class="hint">failed to load audit log: ${esc(e.message)} (check token)</td></tr>`;
+    return;
+  }
+  const tone = s => s.includes('.failed') ? 'failed'
+              : s.includes('.success') ? 'success'
+              : s.includes('.started')||s.includes('downloading') ? 'running'
               : 'queued';
   $('audit-body').innerHTML = rows.length ? rows.map(a => `
     <tr>
