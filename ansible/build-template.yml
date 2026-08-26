@@ -81,11 +81,21 @@
           - "{{ work_dir }}/root.qcow2"
           - "{{ disk_size }}"
 
-    - name: Copy image into enlarged target (root fs grows via cloud-init growpart)
+    - name: Copy image into enlarged target
       ansible.builtin.command:
         argv:
           - virt-resize
           - "{{ cache_dir }}/{{ filename }}"
+          - "{{ work_dir }}/root.qcow2"
+
+    - name: Expand root partition + filesystem to fill disk
+      # newer virt-resize leaves leftover space as an EMPTY trailing
+      # partition, which blocks cloud-init growpart forever (root stays at
+      # the base image's tiny size). Delete it and grow root offline.
+      ansible.builtin.command:
+        argv:
+          - bash
+          - "{{ playbook_dir }}/../lib/expand-root.sh"
           - "{{ work_dir }}/root.qcow2"
 
     # --------------------------------------------------- guest repos
@@ -202,10 +212,13 @@
       when: panel_welcome is defined
 
     - name: Add panel injection to virt-customize argv
+      # NOTE: uploading the unit is not enough — it must be ENABLED
+      # (multi-user.target.wants symlink) or the installer never runs.
       ansible.builtin.set_fact:
         vc_argv: "{{ vc_argv + [
             '--upload', work_dir ~ '/tg-panel-install:/usr/local/sbin/tg-panel-install',
             '--upload', work_dir ~ '/tg-panel-install.service:/etc/systemd/system/tg-panel-install.service',
+            '--run-command', 'mkdir -p /etc/systemd/system/multi-user.target.wants && ln -sf /etc/systemd/system/tg-panel-install.service /etc/systemd/system/multi-user.target.wants/tg-panel-install.service',
           ] + (['--upload', work_dir ~ '/tg-panel-welcome.sh:/etc/profile.d/tg-panel-welcome.sh']
                if panel_welcome is defined else []) }}"
       when: panel_script is defined

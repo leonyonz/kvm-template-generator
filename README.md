@@ -10,8 +10,9 @@ Browser ──HTTP──> FastAPI server (SQLite: builds + audit log)
         ansible/build-template.yml ──> libguestfs on localhost
           ├─ downloads official cloud image (+ checksum verify)
           ├─ virt-resize to target disk size
+          ├─ expand-root.sh: grows root partition + fs to fill the disk
           ├─ rewrites repos → http://mirror.biznetgio.com
-          ├─ installs qemu-guest-agent (+ growpart support)
+          ├─ installs qemu-guest-agent (+ cloud-guest-utils)
           ├─ patches kernel* + openssh*  (CVE mode) or full upgrade
           ├─ CloudStack datasource + password-management service
           ├─ serial console ttyS0, timezone, admin user (optional)
@@ -104,11 +105,28 @@ and reports whether it reaches a login prompt.
 - **virt-resize fails with `deficit of ... bytes`**: the target disk size is
   smaller than (or equal to) the base image. Rocky/AlmaLinux GenericCloud
   images are already 10 GiB — use the 20G default or a larger `--disk-size`.
+- **SSH/console session closes right after login**: templates built with a
+  version **before** the profile.d-banner fix — the first-boot panel banner
+  (`/etc/profile.d/tg-panel-welcome.sh`) used `exit`, which kills the whole
+  sourced login shell when its log file is missing. Rebuild the template or
+  repair in place:
+  `virt-customize -a <img> --run-command "sed -i s/exit 0/return 0/g /etc/profile.d/tg-panel-welcome.sh"`
+- **VM built with a 20G template only shows ~2G root**: images built before
+  the `expand-root` fix rely on deploy-time growpart, which newer virt-resize
+  breaks (it parks the free space in an empty trailing partition that blocks
+  root from growing). Rebuild, repair with `lib/expand-root.sh <img>`, or fix
+  a running VM: delete the empty trailing partition (`sgdisk --delete=N`),
+  then `growpart` + `resize2fs` the root.
+- **Panel/agent never installed on first boot**: units are now enabled at
+  build time (multi-user.target.wants symlink); images built before this fix
+  need `ln -sf /etc/systemd/system/tg-panel-install.service
+  /etc/systemd/system/multi-user.target.wants/` inside the guest.
 
 Open `http://<buildhost>:8080`, paste the token, fill the form:
 
 - distro / version / disk size
-- patch mode: **kernel+openssh (CVE)** · full update · **custom** · none
+- patch mode: **kernel+openssh (CVE)** · full update · **custom** · none ·
+  **panel installers** (cPanel/Plesk/aaPanel/CyberPanel/Hermes/OpenClaw)
 - custom = named profile from `config/patches.yml` (exact kernel/kmod
   versions, holds, workarounds) or ad-hoc packages/commands typed per build
 - **Run boot test after build**: boots the finished image headlessly and
@@ -146,6 +164,23 @@ module blacklists, default-kernel selection, package holds and arbitrary
 workaround commands. The dashboard exposes them under
 *Patch mode → custom*, together with ad-hoc packages/commands fields.
 Every use is recorded in the audit log (`patch=custom/profile:<name>`).
+
+## Panel installers (first boot)
+
+Patch modes `panel-*` bake a one-shot systemd unit into the template that
+runs the vendor installer on FIRST BOOT (panels need a booted system — they
+cannot run inside libguestfs chroot):
+
+- installer script : `/usr/local/sbin/tg-panel-install`
+- service unit     : `tg-panel-install.service` (**enabled** at build time;
+  disables itself after success)
+- log              : `/var/log/tg-panel-install.log`
+- login banner     : `/etc/profile.d/tg-panel-welcome.sh` shows live install
+  status + next steps on interactive logins (uses `return` only — safe to
+  source; an `exit` here would kill every SSH/console session)
+
+Give the VM network access and a few minutes after first boot; watch progress
+with `tail -f /var/log/tg-panel-install.log`.
 
 ## API
 
@@ -185,6 +220,7 @@ password from the virtual router on first boot).
 run-server.sh              start web server
 config/catalog.yml         distro/version/image catalog (UI reads this)
 ansible/build-template.yml the actual build logic
+lib/expand-root.sh         grows root partition + fs to fill the disk
 server/app.py              FastAPI: jobs, audit log, build resolution
 server/static/index.html   single-file Web UI
 assets/cloudstack/         password agent + systemd unit
@@ -195,8 +231,12 @@ cache/ output/             base images & finished templates
 
 ## Notes
 
-- Root partition grows to the requested disk size via cloud-init growpart on
-  first boot (standard cloud-image behaviour).
+- Root partition + filesystem are grown to the requested disk size AT BUILD
+  TIME (`lib/expand-root.sh`, offline via guestfish). Newer virt-resize parks
+  leftover space in an empty trailing partition, so relying on deploy-time
+  cloud-init growpart left every VM stuck at the base image's tiny root fs.
+  ext* is resized during the build; xfs/btrfs get a full-size partition and
+  are grown by cloud-init resizefs on first boot.
 - The bootloader (grub/grub2-install) is re-run after `virt-resize`: resizing
   renumbers GPT partitions (Ubuntu images number them 14/15/16/1), which
   would otherwise leave GRUB's embedded core.img pointing at a partition that

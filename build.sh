@@ -253,6 +253,9 @@ log "resizing image to ${DISK_SIZE}"
 RESIZED="${WORK_DIR}/root.qcow2"
 qemu-img create -f qcow2 "$RESIZED" "$DISK_SIZE"
 virt-resize "$IMG_CACHE" "$RESIZED"
+# grow root partition+fs into the enlarged disk (virt-resize leaves an
+# empty filler partition that would block deploy-time growpart forever)
+bash "$(dirname "${BASH_SOURCE[0]}")/lib/expand-root.sh" "$RESIZED"
 
 # 3. customization plan
 vc -a "$RESIZED" --network
