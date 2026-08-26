@@ -1,0 +1,233 @@
+---
+# =====================================================================
+# build-template.yml — build a KVM template (Proxmox/CloudStack ready)
+#
+# All distro-specific values are passed as extra-vars by the server
+# (see server/app.py -> resolve_build()). Run manually:
+#
+#   ansible-playbook -i localhost, ansible/build-template.yml \
+#     --extra-vars @job.json
+# =====================================================================
+- name: Build KVM template
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    patch_mode: targeted        # targeted | full | none
+    switch_repo: true
+
+  tasks:
+    # ---------------------------------------------------------- prep
+    - name: Create directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ cache_dir }}"
+        - "{{ output_dir }}"
+        - "{{ work_dir }}"
+
+    # ------------------------------------------------------ download
+    - name: Download base image (checksum-verified for deb family)
+      ansible.builtin.get_url:
+        url: "{{ image_url }}"
+        dest: "{{ cache_dir }}/{{ filename }}"
+        mode: "0644"
+        timeout: 1800
+        checksum: "{{ (sums_algo ~ ':' ~ sums_url) if family == 'deb' else omit }}"
+
+    - name: Fetch CHECKSUM file (rpm)
+      ansible.builtin.get_url:
+        url: "{{ sums_url }}"
+        dest: "{{ work_dir }}/CHECKSUM"
+        mode: "0644"
+        timeout: 300
+      when: family == 'rpm'
+
+    - name: Verify image checksum (rpm CHECKSUM format)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        expected=$(awk -v f="$FILENAME" '
+          index($0, "(" f ")") > 0 {
+              n = split($0, a, /[ \t]+/)
+              for (i = 1; i <= n; i++)
+                  if (a[i] ~ /^[0-9a-fA-F]{64,128}$/) { print a[i]; exit }
+          }
+          !found && ($2 == f || $2 == "*" f) { print $1; found = 1 }
+        ' "$SUMS_FILE" | head -n1)
+        [ -n "$expected" ] || { echo "hash not found for $FILENAME" >&2; exit 1; }
+        algo=sha256sum
+        [ "$(printf %s "$expected" | wc -c)" -eq 128 ] && algo=sha512sum
+        printf '%s  %s\n' "$expected" "$IMG_PATH" | "$algo" -c --status
+      args:
+        executable: /bin/bash
+      changed_when: false
+      environment:
+        FILENAME: "{{ filename }}"
+        SUMS_FILE: "{{ work_dir }}/CHECKSUM"
+        IMG_PATH: "{{ cache_dir }}/{{ filename }}"
+      when: family == 'rpm'
+
+    # -------------------------------------------------------- resize
+    - name: Create empty target image (required by virt-resize)
+      ansible.builtin.command:
+        argv:
+          - qemu-img
+          - create
+          - -f
+          - qcow2
+          - "{{ work_dir }}/root.qcow2"
+          - "{{ disk_size }}"
+
+    - name: Copy image into enlarged target (root fs grows via cloud-init growpart)
+      ansible.builtin.command:
+        argv:
+          - virt-resize
+          - "{{ cache_dir }}/{{ filename }}"
+          - "{{ work_dir }}/root.qcow2"
+
+    # --------------------------------------------------- guest repos
+    - name: Write mirror repo file for guest
+      ansible.builtin.copy:
+        dest: "{{ work_dir }}/guest-repo.cfg"
+        content: "{{ repo_file_content }}"
+        mode: "0644"
+      when: switch_repo | bool
+
+    # -------------------------------------------- customize argument list
+    - name: Initialize virt-customize argv
+      ansible.builtin.set_fact:
+        vc_argv:
+          - virt-customize
+          - -a
+          - "{{ work_dir }}/root.qcow2"
+          - --network
+
+    - name: Add pre-repo commands
+      ansible.builtin.set_fact:
+        vc_argv: "{{ vc_argv + pre_repo_cmds }}"
+      when: switch_repo | bool and pre_repo_cmds | length > 0
+
+    - name: Add repo file upload
+      ansible.builtin.set_fact:
+        vc_argv: "{{ vc_argv + ['--upload', work_dir ~ '/guest-repo.cfg:' ~ repo_upload_target] }}"
+      when: switch_repo | bool
+
+    - name: Add post-repo commands
+      ansible.builtin.set_fact:
+        vc_argv: "{{ vc_argv + post_repo_cmds }}"
+      when: switch_repo | bool and post_repo_cmds | length > 0
+
+    - name: Install qemu-guest-agent + growpart support
+      ansible.builtin.set_fact:
+        vc_argv: "{{ vc_argv + ['--run-command', pkg_install_cmd] }}"
+
+    - name: Resolve update strategy
+      ansible.builtin.set_fact:
+        update_cmd: >-
+          {{ 'none' if patch_mode == 'none'
+             else (full_update_cmd if patch_mode == 'full' else patch_cmd) }}
+
+    - name: Apply update strategy (CVE patch / full update)
+      ansible.builtin.set_fact:
+        vc_argv: "{{ vc_argv + ['--run-command', update_cmd] }}"
+      when: update_cmd != 'none'
+
+    - name: Add CloudStack compatibility assets
+      ansible.builtin.set_fact:
+        vc_argv: "{{ vc_argv + [
+            '--upload', playbook_dir ~ '/../assets/cloud/99-cloudstack.cfg:/etc/cloud/cloud.cfg.d/99-cloudstack.cfg',
+            '--upload', playbook_dir ~ '/../assets/cloudstack/set-guest-password:/usr/local/bin/cloudstack-set-guest-password',
+            '--upload', playbook_dir ~ '/../assets/cloudstack/cloudstack-password.service:/etc/systemd/system/cloudstack-password.service',
+            '--run-command', 'chmod 755 /usr/local/bin/cloudstack-set-guest-password',
+            '--run-command', 'systemctl enable cloudstack-password.service qemu-guest-agent'
+          ] }}"
+
+    - name: Enable serial console
+      ansible.builtin.set_fact:
+        vc_argv: "{{ vc_argv + ['--run-command', grub_cmd] }}"
+
+    - name: Reinstall bootloader (virt-resize renumbers GPT partitions -> stale core.img prefix)
+      ansible.builtin.set_fact:
+        vc_argv: "{{ vc_argv + ['--run-command', grub_install_cmd] }}"
+
+    - name: Set timezone
+      ansible.builtin.set_fact:
+        vc_argv: "{{ vc_argv + ['--timezone', timezone] }}"
+      when: timezone | default('') | length > 0
+
+    - name: Create admin user
+      ansible.builtin.set_fact:
+        vc_argv: "{{ vc_argv + ['--run-command', admin_setup_cmd] }}"
+      when: admin_user | default('') | length > 0
+
+    - name: Inject admin SSH key
+      ansible.builtin.set_fact:
+        vc_argv: "{{ vc_argv + ['--ssh-inject', admin_user ~ ':string:' ~ admin_ssh_key] }}"
+      when:
+        - admin_user | default('') | length > 0
+        - admin_ssh_key | default('') | length > 0
+
+    - name: Set emergency root password
+      ansible.builtin.set_fact:
+        vc_argv: "{{ vc_argv + ['--root-password', 'password:' ~ root_password] }}"
+      when: root_password | default('') | length > 0
+
+    - name: Log hygiene
+      ansible.builtin.set_fact:
+        vc_argv: "{{ vc_argv + cleanup_cmds }}"
+
+    - name: SELinux relabel (rpm family)
+      ansible.builtin.set_fact:
+        vc_argv: "{{ vc_argv + ['--selinux-relabel'] }}"
+      when: family == 'rpm'
+
+    - name: Customize guest image offline
+      ansible.builtin.command:
+        argv: "{{ vc_argv }}"
+
+    # ------------------------------------------------------- cleanup
+    - name: Sysprep (logs, machine-id, host keys, hwaddr...)
+      ansible.builtin.command:
+        argv:
+          - virt-sysprep
+          - -a
+          - "{{ work_dir }}/root.qcow2"
+          - --operations
+          - "bash-history,dhcp-client-state,logfiles,machine-id,mail-spool,net-hwaddr,package-manager-cache,pam-data,rpm-db,ssh-hostkeys,ssh-userdir,tmp-files,udev-persistent-net,utmp,yum-uuid"
+
+    - name: Compact image
+      ansible.builtin.command:
+        argv:
+          - qemu-img
+          - convert
+          - -O
+          - qcow2
+          - "{{ work_dir }}/root.qcow2"
+          - "{{ final_path }}.tmp"
+
+    - name: Finalize output file
+      ansible.builtin.command:
+        argv: [mv, "{{ final_path }}.tmp", "{{ final_path }}"]
+
+    - name: Compute SHA256
+      ansible.builtin.command:
+        argv: [sha256sum, "{{ final_path }}"]
+      register: sha_out
+      changed_when: false
+
+    - name: Write checksum sidecar
+      ansible.builtin.copy:
+        dest: "{{ final_path }}.sha256"
+        content: "{{ sha_out.stdout }}\n"
+        mode: "0644"
+
+    - name: ==========================================================
+      ansible.builtin.debug:
+        msg:
+          - "Template built : {{ final_path }}"
+          - "SHA256         : {{ sha_out.stdout.split()[0] }}"
+          - "Register in CloudStack: hypervisor=KVM format=QCOW2 BIOS, tick Password Enabled"
+          - "Or import to Proxmox with qm importdisk"

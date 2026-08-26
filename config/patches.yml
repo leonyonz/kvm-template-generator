@@ -1,0 +1,65 @@
+# =====================================================================
+# Custom patch profiles for template-generator
+#
+# Selected in the Web UI: Patch mode = "custom (profile / ad-hoc)"
+#
+# Profile fields:
+#   label               display name
+#   family              deb | rpm | any      (which guest family it fits)
+#   distros             optional allow-list, e.g. [ubuntu, debian]
+#   packages            install EXACT packages/versions (native syntax:
+#                       deb "linux-image-virtual=5.15.0-107.117",
+#                       rpm "kernel-5.14.0-503.15.1.el9_5")
+#   update_globs        upgrade only matching INSTALLED pkgs: ["openssh*"]
+#   hold_packages       lock against future upgrades after install
+#   set_default_kernel  boot this kernel release by default
+#                       (rpm: grubby set-default; deb: purges others if
+#                        remove_other_kernels is true)
+#   remove_other_kernels purge every other kernel from the image
+#   commands            arbitrary shell snippets run inside the guest
+#
+# NOTE: package versions below are EXAMPLES — replace with versions that
+# actually exist on your mirror before using them in production builds.
+# =====================================================================
+
+profiles:
+  kernel-only:
+    label: Update kernel only (latest from mirror)
+    family: any
+    packages: []
+    update_globs:
+      - "kernel*"
+
+  ssh-only:
+    label: Update OpenSSH only (latest from mirror)
+    family: any
+    packages: []
+    update_globs:
+      - "openssh*"
+
+  example-ubuntu-pin-kernel:
+    label: "EXAMPLE: Ubuntu pin kernel 5.15.0-107"
+    family: deb
+    distros: [ubuntu]
+    packages:
+      - linux-image-virtual=5.15.0-107.117
+      - linux-modules-5.15.0-107-generic
+    set_default_kernel: 5.15.0-107-generic
+    remove_other_kernels: true
+    hold_packages:
+      - linux-image-virtual
+      - linux-virtual
+
+  example-alma-kernel-kmod-pin:
+    label: "EXAMPLE: AlmaLinux pin kernel + kmod"
+    family: rpm
+    distros: [almalinux, rocky]
+    packages:
+      - kernel-5.14.0-503.15.1.el9_5
+      - kernel-core-5.14.0-503.15.1.el9_5
+      - kernel-modules-5.14.0-503.15.1.el9_5
+      - kmod-kvdo-8.2.3.3_115-95.el9_5
+    set_default_kernel: 5.14.0-503.15.1.el9_5.x86_64
+    commands:
+      # example workaround: blacklist a buggy module
+      - echo "blacklist some_buggy_module" > /etc/modprobe.d/blacklist-workaround.conf

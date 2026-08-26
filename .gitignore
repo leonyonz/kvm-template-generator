@@ -1,0 +1,26 @@
+# --- build artifacts ---
+cache/
+output/
+server/work/
+server/logs/
+
+# --- runtime state ---
+server/data.db
+*.log
+
+# --- disk images / iso (never commit these) ---
+*.qcow2
+*.img
+*.raw
+*.iso
+
+# --- python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# --- editor / OS ---
+*.swp
+*~
+.DS_Store
