@@ -38,21 +38,23 @@ REPO
 customize_repos() {
     local repo_content
     repo_content=$(build_suse_repo) || return 1
-    # Park upstream repo definitions so only the mirror is used
-    vc --run-command 'mkdir -p /etc/zypp/repos.d.disabled;
-mv /etc/zypp/repos.d/*.repo /etc/zypp/repos.d.disabled/ 2>/dev/null; true'
+    # Park upstream repo definitions AND zypp services — Leap 16 generates
+    # its repos via a service, so moving only *.repo leaves upstream active
+    vc --run-command 'mkdir -p /etc/zypp/repos.d.disabled /etc/zypp/services.d.disabled;
+mv /etc/zypp/repos.d/*.repo /etc/zypp/repos.d.disabled/ 2>/dev/null;
+mv /etc/zypp/services.d/*.service /etc/zypp/services.d.disabled/ 2>/dev/null; true'
     vc --write "/etc/zypp/repos.d/biznetgio.repo:${repo_content}"
-    vc --run-command 'zypper --gpg-auto-import-keys --non-interactive refresh >/dev/null 2>&1; true'
+    vc --run-command 'zypper --gpg-auto-import-keys --non-interactive refresh || true'
 }
 
 customize_pkgs() {
-    vc --run-command 'zypper -n --gpg-auto-import-keys install qemu-guest-agent || exit 1; zypper -n clean'
+    vc --run-command 'zypper -n --gpg-auto-import-keys install qemu-guest-agent || exit 1; zypper -n clean || true'
 }
 
 customize_patch() {
-    vc --run-command 'zypper -n update "kernel*" "openssh*" && zypper -n clean'
+    vc --run-command 'zypper -n update "kernel*" "openssh*" && zypper -n clean || true'
 }
 
 customize_full_update() {
-    vc --run-command 'zypper -n dup --auto-agree-with-licenses && zypper -n clean'
+    vc --run-command 'zypper -n dup --auto-agree-with-licenses && zypper -n clean || true'
 }
