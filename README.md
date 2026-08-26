@@ -192,6 +192,9 @@ curl -H 'X-Token: ...' -X POST http://localhost:8080/api/builds \
 curl -H 'X-Token: ...' http://localhost:8080/api/builds         # queue/status
 curl -H 'X-Token: ...' http://localhost:8080/api/builds/1/log   # ansible log
 curl -H 'X-Token: ...' http://localhost:8080/api/audit          # audit trail
+curl -H 'X-Token: ...' -o tpl.qcow2 \
+     http://localhost:8080/api/builds/1/download   # download output image
+curl -H 'X-Token: ...' -X DELETE http://localhost:8080/api/builds/1/file   # delete output
 ```
 
 One build runs at a time (guestfs is heavy); extra requests get HTTP 409.

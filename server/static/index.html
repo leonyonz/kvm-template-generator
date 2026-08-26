@@ -442,8 +442,39 @@ async function refreshBuilds() {
         ${b.final_path ? esc(b.final_path.split('/').pop()) +
           (b.sha256 ? `<br>sha256:${esc(b.sha256.slice(0,16))}…` : '') : '—'}
       </td>
-      <td><button class="link" onclick="viewLog(${b.id})">log</button></td>
+      <td>${actionCell(b)}<button class="link" onclick="viewLog(${b.id})">log</button></td>
     </tr>`).join('') : '<tr><td colspan="8" class="hint">no builds yet</td></tr>';
+}
+
+function actionCell(b){
+  if (b.status !== 'success' || !b.final_path) return '';
+  return `<button class="link" onclick="downloadOutput(${b.id})">download</button> `
+       + `<button class="link" style="color:var(--red,#c0392b)" onclick="deleteOutput(${b.id})">delete</button> `;
+}
+
+async function downloadOutput(id){
+  try {
+    const r = await fetch(`/api/builds/${id}/download`, {headers:{'X-Token':$('token').value}});
+    if (!r.ok) { toast('download failed: HTTP '+r.status, false); return; }
+    const blob = await r.blob();
+    const cd = r.headers.get('Content-Disposition') || '';
+    const m  = cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/);
+    const a  = document.createElement('a');
+    a.href   = URL.createObjectURL(blob);
+    a.download = m ? decodeURIComponent(m[1]) : `build-${id}.qcow2`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+    toast(`downloading build #${id} (${(blob.size/1048576).toFixed(0)} MB)`);
+  } catch(e){ toast('error: '+e.message, false); }
+}
+
+async function deleteOutput(id){
+  if (!confirm(`Delete the output image of build #${id}?\nThe file and its sha256 are removed from disk. Build history stays.`)) return;
+  try {
+    await api(`/api/builds/${id}/file`, {method:'DELETE'});
+    toast(`output of build #${id} deleted`);
+    refreshBuilds();
+  } catch(e){ toast('error: '+e.message, false); }
 }
 
 const BOOT_BADGE = {pass:'success', fail:'failed', running:'running',

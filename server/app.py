@@ -787,6 +787,48 @@ def get_boottest_log(job_id: int, tail: int = 0):
     return data
 
 
+@app.get("/api/builds/{job_id}/download", dependencies=[Depends(require_token)])
+def download_output(job_id: int):
+    """Stream the finished template image to the client."""
+    with db() as con:
+        row = con.execute("SELECT * FROM builds WHERE id=?", (job_id,)).fetchone()
+    if not row or not row["final_path"]:
+        raise HTTPException(404, "no such build / no output file")
+    p = Path(row["final_path"])
+    if not p.exists():
+        raise HTTPException(410, "output file is gone from disk")
+    audit("api-client", "output.downloaded", f"job={job_id} {p.name}")
+    return FileResponse(p, media_type="application/octet-stream", filename=p.name)
+
+
+@app.delete("/api/builds/{job_id}/file", dependencies=[Depends(require_token)])
+def delete_output(job_id: int):
+    """Delete the finished image (+ sha256 sidecar) from disk.
+    The build history record stays; only the artifacts are removed."""
+    with db() as con:
+        row = con.execute("SELECT * FROM builds WHERE id=?", (job_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "no such build")
+    if row["status"] in ("queued", "downloading", "building", "running"):
+        raise HTTPException(409, "build still running — cannot delete its output")
+    fp = row["final_path"]
+    if not fp:
+        raise HTTPException(400, "nothing to delete (no output recorded)")
+    deleted = []
+    for f in (fp, fp + ".sha256"):
+        p = Path(f)
+        if p.exists():
+            p.unlink()
+            deleted.append(p.name)
+    if not deleted:
+        raise HTTPException(410, "output file is gone from disk")
+    with db() as con:
+        con.execute("UPDATE builds SET final_path='', sha256='' WHERE id=?", (job_id,))
+    audit("api-client", "output.deleted",
+          f"job={job_id} " + ", ".join(deleted))
+    return {"ok": True, "deleted": deleted}
+
+
 @app.post("/api/builds/{job_id}/boottest", dependencies=[Depends(require_token)])
 def boottest_build(job_id: int):
     with db() as con:
