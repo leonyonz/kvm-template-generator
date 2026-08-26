@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 import urllib.request
 
 import yaml
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
@@ -787,9 +787,13 @@ def get_boottest_log(job_id: int, tail: int = 0):
     return data
 
 
-@app.get("/api/builds/{job_id}/download", dependencies=[Depends(require_token)])
-def download_output(job_id: int):
-    """Stream the finished template image to the client."""
+@app.get("/api/builds/{job_id}/download")
+def download_output(job_id: int, x_token: str = Header(default=""), token: str = Query(default="")):
+    """Stream the finished template image to the client.
+    Auth: X-Token header (API clients) OR ?token= query param (browser
+    anchor downloads can't set headers, so the UI uses the query form)."""
+    if not ((x_token and x_token == TOKEN) or (token and token == TOKEN)):
+        raise HTTPException(401, "invalid or missing X-Token")
     with db() as con:
         row = con.execute("SELECT * FROM builds WHERE id=?", (job_id,)).fetchone()
     if not row or not row["final_path"]:

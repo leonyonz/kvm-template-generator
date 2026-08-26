@@ -448,25 +448,13 @@ async function refreshBuilds() {
 
 function actionCell(b){
   if (b.status !== 'success' || !b.final_path) return '';
-  return `<button class="link" onclick="downloadOutput(${b.id})">download</button> `
+  const fname = encodeURIComponent(b.final_path.split('/').pop());
+  const tkn = encodeURIComponent($('token').value);
+  // native anchor download: browser handles it (no blob / revoke timing bugs)
+  return `<a class="link" href="/api/builds/${b.id}/download?token=${tkn}" download="${fname}">download</a> `
        + `<button class="link" style="color:var(--red,#c0392b)" onclick="deleteOutput(${b.id})">delete</button> `;
 }
 
-async function downloadOutput(id){
-  try {
-    const r = await fetch(`/api/builds/${id}/download`, {headers:{'X-Token':$('token').value}});
-    if (!r.ok) { toast('download failed: HTTP '+r.status, false); return; }
-    const blob = await r.blob();
-    const cd = r.headers.get('Content-Disposition') || '';
-    const m  = cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/);
-    const a  = document.createElement('a');
-    a.href   = URL.createObjectURL(blob);
-    a.download = m ? decodeURIComponent(m[1]) : `build-${id}.qcow2`;
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(a.href);
-    toast(`downloading build #${id} (${(blob.size/1048576).toFixed(0)} MB)`);
-  } catch(e){ toast('error: '+e.message, false); }
-}
 
 async function deleteOutput(id){
   if (!confirm(`Delete the output image of build #${id}?\nThe file and its sha256 are removed from disk. Build history stays.`)) return;
