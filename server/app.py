@@ -294,6 +294,76 @@ CLEANUP_CMDS = ["--run-command",
                 "rm -rf /var/log/journal/* /var/log/audit/* 2>/dev/null; "
                 "find /var/log -type f -size +5M -delete 2>/dev/null; true"]
 
+# ------------------------------------------------------- panel installers
+# Heavy control panels / agents cannot run inside virt-customize's chroot
+# (they need a booted system with systemd). Instead we inject a one-shot
+# systemd service that runs the installer on FIRST BOOT, logs to
+# /var/log/tg-panel-install.log and disables itself afterwards.
+PANEL_MODES = {
+    "panel-cpanel": {
+        "label": "cPanel install (first boot)",
+        "script": """set -x
+cd /home
+curl -4so latest https://securedownloads.cpanel.net/latest
+sh latest
+""",
+    },
+    "panel-plesk": {
+        "label": "Plesk install (first boot)",
+        "script": """set -x
+curl -4sL https://autoinstall.plesk.com/one-click-installer | sh
+""",
+    },
+    "panel-aapanel": {
+        "label": "aaPanel install (first boot)",
+        "script": """set -x
+curl -4sSO https://www.aapanel.com/scripts/install_7.0_en.sh
+bash install_7.0_en.sh aapanel
+""",
+    },
+    "panel-cyberpanel": {
+        "label": "CyberPanel install (first boot)",
+        # installer is interactive; pipe the standard answers:
+        # 1=install, 1=full, 1=standard powerdns..., 1=yes remote mysql(no), N=no redis? etc.
+        # NOTE: verify answer sequence against current install.sh before production use.
+        "script": """set -x
+curl -4sL https://cyberpanel.net/install.sh -o /tmp/cyberpanel-install.sh
+printf '1\\n1\\n1\\n1\\ns\\n' | bash /tmp/cyberpanel-install.sh
+""",
+    },
+    "panel-hermes": {
+        "label": "Hermes Agent install (first boot)",
+        "script": """set -x
+curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+""",
+    },
+    "panel-openclaw": {
+        "label": "OpenClaw install (first boot)",
+        "script": """set -x
+curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard
+""",
+    },
+}
+
+PANEL_UNIT = """[Unit]
+Description=template-generator first-boot panel installer
+After=network-online.target cloud-init.service
+Wants=network-online.target
+ConditionPathExists=/usr/local/sbin/tg-panel-install
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /usr/local/sbin/tg-panel-install
+ExecStartPost=/bin/sh -c 'echo "=== finished $(date -Is) rc=$? ===" >> /var/log/tg-panel-install.log; systemctl disable tg-panel-install.service'
+StandardOutput=append:/var/log/tg-panel-install.log
+StandardError=append:/var/log/tg-panel-install.log
+TimeoutSec=0
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target
+"""
+
 # virt-resize renumbers GPT partitions (physical order); GRUB's core.img
 # keeps a prefix pointing at the OLD partition number, so the bootloader
 # must be reinstalled after resizing or the template dies in grub rescue.
@@ -311,8 +381,8 @@ def resolve_build(req: "BuildRequest") -> dict:
     if req.version not in d["versions"]:
         raise HTTPException(400, f"'{req.distro}' has no version '{req.version}' "
                                  f"(available: {', '.join(d['versions'])})")
-    if req.patch_mode not in ("targeted", "full", "custom", "none"):
-        raise HTTPException(400, "patch_mode must be targeted|full|custom|none")
+    if req.patch_mode not in ("targeted", "full", "custom", "none", *PANEL_MODES):
+        raise HTTPException(400, "unknown patch_mode")
 
     v = d["versions"][req.version]
     fam = d["family"]
@@ -349,6 +419,13 @@ def resolve_build(req: "BuildRequest") -> dict:
     if req.patch_mode == "custom":
         ev["patch_cmd"], patch_src = compose_custom_patch(req, fam, req.distro)
         ev["patch_desc"] = patch_src
+
+    # panel install stage: inject a first-boot systemd oneshot installer
+    # (control panels need a booted system — they cannot run in chroot)
+    if req.patch_mode in PANEL_MODES:
+        ev["panel_label"] = PANEL_MODES[req.patch_mode]["label"]
+        ev["panel_script"] = PANEL_MODES[req.patch_mode]["script"]
+        ev["panel_unit"] = PANEL_UNIT
 
     if fam == "deb":
         cn = v["codename"]

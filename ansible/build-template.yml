@@ -127,7 +127,7 @@
     - name: Resolve update strategy
       ansible.builtin.set_fact:
         update_cmd: >-
-          {{ 'none' if patch_mode == 'none'
+          {{ 'none' if patch_mode not in ('targeted', 'full')
              else (full_update_cmd if patch_mode == 'full' else patch_cmd) }}
 
     - name: Apply update strategy (CVE patch / full update)
@@ -178,6 +178,30 @@
     - name: Log hygiene
       ansible.builtin.set_fact:
         vc_argv: "{{ vc_argv + cleanup_cmds }}"
+
+    # --------------------------------------- panel install (first boot)
+    - name: Write panel installer script (first-boot execution)
+      ansible.builtin.copy:
+        dest: "{{ work_dir }}/tg-panel-install"
+        content: "{{ panel_script }}"
+        mode: "0755"
+      when: panel_script is defined
+
+    - name: Write panel systemd unit
+      ansible.builtin.copy:
+        dest: "{{ work_dir }}/tg-panel-install.service"
+        content: "{{ panel_unit }}"
+        mode: "0644"
+      when: panel_script is defined
+
+    - name: Add panel injection to virt-customize argv
+      ansible.builtin.set_fact:
+        vc_argv: "{{ vc_argv + [
+            '--upload', work_dir ~ '/tg-panel-install:/usr/local/sbin/tg-panel-install',
+            '--upload', work_dir ~ '/tg-panel-install.service:/etc/systemd/system/tg-panel-install.service',
+            '--run-command', 'systemctl enable tg-panel-install.service'
+          ] }}"
+      when: panel_script is defined
 
     - name: SELinux relabel (rpm family)
       ansible.builtin.set_fact:
