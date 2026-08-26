@@ -1,7 +1,8 @@
 # template-generator
 
 Web UI + Ansible backend that builds minimal, hardened **KVM templates** for
-**Proxmox** and **CloudStack** — Ubuntu / Debian / Rocky / AlmaLinux.
+**Proxmox** and **CloudStack** — Ubuntu / Debian / Rocky / AlmaLinux /
+openSUSE Leap.
 
 ```
 Browser ──HTTP──> FastAPI server (SQLite: builds + audit log)
@@ -14,7 +15,7 @@ Browser ──HTTP──> FastAPI server (SQLite: builds + audit log)
           ├─ rewrites repos → http://mirror.biznetgio.com
           ├─ installs qemu-guest-agent (+ cloud-guest-utils)
           ├─ patches kernel* + openssh*  (CVE mode) or full upgrade
-          ├─ CloudStack datasource + password-management service
+          ├─ CloudStack datasource + password/sshkey management agent
           ├─ serial console ttyS0, timezone, admin user (optional)
           ├─ grub/grub2-install (re-embed bootloader after resize)
           ├─ virt-sysprep: logs, machine-id, host keys, hwaddr
@@ -28,10 +29,11 @@ no restart needed.
 
 | Distro | Versions |
 |---|---|
-| Ubuntu    | 24.04 (minimal), 22.04 (minimal) |
+| Ubuntu    | 26.04, 24.04, 22.04 |
 | Debian    | 13, 12, 11 |
 | Rocky     | 10, 9 |
 | AlmaLinux | 10, 9 |
+| openSUSE  | Leap 16 |
 
 ## Install
 
@@ -125,8 +127,10 @@ and reports whether it reaches a login prompt.
 Open `http://<buildhost>:8080`, paste the token, fill the form:
 
 - distro / version / disk size
+- repo switch on/off (private mirror)
 - patch mode: **kernel+openssh (CVE)** · full update · **custom** · none ·
   **panel installers** (cPanel/Plesk/aaPanel/CyberPanel/Hermes/OpenClaw)
+- optional: timezone, admin user + SSH key, emergency root password
 - custom = named profile from `config/patches.yml` (exact kernel/kmod
   versions, holds, workarounds) or ad-hoc packages/commands typed per build
 - **Run boot test after build**: boots the finished image headlessly and
@@ -149,10 +153,9 @@ console (SeaBIOS/GRUB VGA output is mirrored to serial), and reports:
 KVM is used automatically when `/dev/kvm` exists; otherwise it falls back to
 TCG (much slower).
 
-View the serial boot log via the `log` link next to the result.
-- repo switch on/off (private mirror)
-- optional: timezone, admin user + SSH key, emergency root password
-
+View the serial boot log via the `log` link next to the result. Ready templates
+also get **download** and **delete** actions (delete removes the image + its
+sha256 from disk, keeping build history).
 Watch live ansible output in the log pane; every action lands in the
 **Audit Log** tab (build created / started / success / failed, who & when).
 
@@ -214,8 +217,16 @@ qm set 9000 --boot order=scsi0 && qm template 9000
 
 ### CloudStack
 Register the qcow2: Hypervisor **KVM**, format **QCOW2**, BIOS boot,
-tick **Password Enabled** (the baked-in `set-guest-password` service pulls the
-password from the virtual router on first boot).
+tick **Password Enabled**. The baked-in `cloudstack-set-guest-sshkey-password`
+agent (Apache CloudStack's canonical script, bundled) runs on first boot and:
+
+- reads a `config-2` ConfigDrive or the virtual-router userdata server
+- applies the VM password **and** the SSH public key to the distro's **default
+  user** (`ubuntu` / `almalinux` / `rocky` / `cloud-user`…) **and** root
+- fast-gates on non-CloudStack platforms (Proxmox) so first boot isn't slowed
+
+So deploy with a keypair and/or Password Enabled — both users get the
+credentials either way.
 
 ## Layout
 
@@ -226,7 +237,7 @@ ansible/build-template.yml the actual build logic
 lib/expand-root.sh         grows root partition + fs to fill the disk
 server/app.py              FastAPI: jobs, audit log, build resolution
 server/static/index.html   single-file Web UI
-assets/cloudstack/         password agent + systemd unit
+assets/cloudstack/         password + sshkey agent & systemd unit (CloudStack)
 assets/cloud/              cloud-init datasource config (NoCloud+CloudStack)
 build.sh                   legacy CLI (same pipeline, no server needed)
 cache/ output/             base images & finished templates
