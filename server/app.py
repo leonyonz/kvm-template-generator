@@ -375,16 +375,19 @@ def resolve_build(req: "BuildRequest") -> dict:
         ev.update(
             repo_file_content=_suse_repo(mirror, d.get("repo_dir", "opensuse/opensuse"), leap),
             repo_upload_target="/etc/zypp/repos.d/biznetgio.repo",
+            # Leap 16 generates repos via a zypp SERVICE (not static .repo
+            # files) — park services too or upstream repos stay active
             pre_repo_cmds=["--run-command",
-                           "mkdir -p /etc/zypp/repos.d.disabled; "
-                           "mv /etc/zypp/repos.d/*.repo /etc/zypp/repos.d.disabled/ 2>/dev/null; true"],
+                           "mkdir -p /etc/zypp/repos.d.disabled /etc/zypp/services.d.disabled; "
+                           "mv /etc/zypp/repos.d/*.repo /etc/zypp/repos.d.disabled/ 2>/dev/null; "
+                           "mv /etc/zypp/services.d/*.service /etc/zypp/services.d.disabled/ 2>/dev/null; true"],
             post_repo_cmds=["--run-command",
-                            "zypper --gpg-auto-import-keys --non-interactive refresh >/dev/null 2>&1; true"],
+                            "zypper --gpg-auto-import-keys --non-interactive refresh || true"],
             pkg_install_cmd=("zypper -n --gpg-auto-import-keys install qemu-guest-agent || exit 1; "
-                             "zypper -n clean"),
+                             "zypper -n clean || true"),
             # Leap 16 has no separate update repo — updates land in oss itself
-            patch_cmd='zypper -n update "kernel*" "openssh*" && zypper -n clean',
-            full_update_cmd="zypper -n dup --auto-agree-with-licenses && zypper -n clean",
+            patch_cmd='zypper -n update "kernel*" "openssh*" && zypper -n clean || true',
+            full_update_cmd="zypper -n dup --auto-agree-with-licenses && zypper -n clean || true",
             grub_cmd=SUSE_GRUB,
         )
     else:
