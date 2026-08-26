@@ -194,12 +194,18 @@ run_boot_test() {
     command -v qemu-system-x86_64 >/dev/null 2>&1 \
         || { warn "--test needs qemu-system-x86_64 (dnf install qemu-kvm)"; return 0; }
     log "boot smoke test (up to 7 min; TCG fallback if no /dev/kvm)"
+    # -nographic mirrors VGA text (SeaBIOS + GRUB) to serial, so bootloader
+    # failures are visible; -display none would hide them -> inconclusive.
     if timeout 420 qemu-system-x86_64 \
             -machine pc,accel=kvm:tcg -cpu max -m 1024 -smp 2 \
             -drive "file=${img},format=qcow2,if=virtio" \
             -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
-            -display none -serial "file:${logfile}" ; then
+            -nographic -monitor none -serial "file:${logfile}" ; then
         info "qemu exited cleanly"
+    fi
+    if grep -qiE 'error: no such partition|error: unknown filesystem|Entering rescue mode|grub rescue' "$logfile" 2>/dev/null; then
+        warn "BOOT TEST FAILED — grub bootloader error (see ${logfile})"
+        return 1
     fi
     if grep -qE 'login:|Cloud-init.*finished' "$logfile" 2>/dev/null; then
         log "BOOT TEST PASSED — guest reached login/cloud-init-finished"

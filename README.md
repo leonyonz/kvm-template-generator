@@ -120,9 +120,16 @@ Open `http://<buildhost>:8080`, paste the token, fill the form:
 Every ready template has a **Boot** column with a `test` button, and you can
 tick "Run boot test after build" to do it automatically. The test boots the
 `.qcow2` with `-snapshot` (never modifies the master), captures the serial
-console, and reports `pass` / `fail` (panic) / `inconclusive` (timed out
-before login, usually slow TCG). KVM is used automatically when `/dev/kvm`
-exists; otherwise it falls back to TCG (much slower).
+console (SeaBIOS/GRUB VGA output is mirrored to serial), and reports:
+
+- `pass` — guest reached a login prompt / cloud-init finished
+- `fail` — kernel panic, **or a GRUB bootloader error** (`error: no such
+  partition`, grub rescue, ...) — detected within seconds
+- `inconclusive` — timed out before login with no failure observed
+  (usually slow TCG)
+
+KVM is used automatically when `/dev/kvm` exists; otherwise it falls back to
+TCG (much slower).
 
 View the serial boot log via the `log` link next to the result.
 - repo switch on/off (private mirror)
