@@ -118,6 +118,11 @@ base_customize() {
 sed -ri "s|^GRUB_CMDLINE_LINUX=\"(.*)\"|GRUB_CMDLINE_LINUX=\"\1 console=tty0 console=ttyS0,115200n8\"|;
 s|^GRUB_CMDLINE_LINUX=$|GRUB_CMDLINE_LINUX=\"console=tty0 console=ttyS0,115200n8\"|" /etc/default/grub;
 update-grub 2>/dev/null || grub-mkconfig -o /boot/grub/grub.cfg; }'
+    elif [[ "$FAMILY" == "suse" ]]; then
+        vc --run-command 'grep -qs console=ttyS0 /etc/default/grub || {
+sed -ri "s|^GRUB_CMDLINE_LINUX=\"(.*)\"|GRUB_CMDLINE_LINUX=\"\1 console=tty0 console=ttyS0,115200n8\"|;
+s|^GRUB_CMDLINE_LINUX=$|GRUB_CMDLINE_LINUX=\"console=tty0 console=ttyS0,115200n8\"|" /etc/default/grub;
+grub2-mkconfig -o /boot/grub2/grub.cfg 2>/dev/null; }'
     else
         vc --run-command 'command -v grubby >/dev/null && grubby --update-kernel=ALL --args="console=ttyS0,115200n8"; true'
     fi

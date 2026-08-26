@@ -44,7 +44,7 @@
         dest: "{{ work_dir }}/CHECKSUM"
         mode: "0644"
         timeout: 300
-      when: family == 'rpm'
+      when: family in ['rpm', 'suse']
 
     - name: Verify image checksum (rpm CHECKSUM format)
       ansible.builtin.shell: |
@@ -68,7 +68,7 @@
         FILENAME: "{{ filename }}"
         SUMS_FILE: "{{ work_dir }}/CHECKSUM"
         IMG_PATH: "{{ cache_dir }}/{{ filename }}"
-      when: family == 'rpm'
+      when: family in ['rpm', 'suse']
 
     # -------------------------------------------------------- resize
     - name: Create empty target image (required by virt-resize)

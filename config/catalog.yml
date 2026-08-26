@@ -83,3 +83,12 @@ distros:
         filename: AlmaLinux-9-GenericCloud-latest.x86_64.qcow2
         image_url: https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2
         sums_url: https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/CHECKSUM
+  opensuse:
+    label: openSUSE Leap
+    family: suse
+    repo_dir: opensuse/opensuse
+    versions:
+      '16':
+        filename: Leap-16.0-Minimal-VM.x86_64-Cloud.qcow2
+        image_url: https://download.opensuse.org/distribution/leap/16.0/appliances/Leap-16.0-Minimal-VM.x86_64-Cloud.qcow2
+        sums_url: https://download.opensuse.org/distribution/leap/16.0/appliances/Leap-16.0-Minimal-VM.x86_64-Cloud.qcow2.sha256
