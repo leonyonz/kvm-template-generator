@@ -91,7 +91,7 @@ else
             || apt-get -y install curl rsync qemu-utils \
                ansible-core python3 python3-venv python3-pip >/dev/null
     fi
-    for c in curl qemu-img virt-customize virt-sysprep virt-resize python3; do
+    for c in curl qemu-img virt-customize virt-sysprep virt-resize guestfish python3; do
         command -v "$c" >/dev/null 2>&1 || die "install failed: '$c' still missing — check your distro mirrors"
     done
     info "system prerequisites OK"
@@ -110,7 +110,8 @@ if [[ $UPGRADE == 1 ]]; then
 fi
 rsync -a --quiet "${EXCLUDES[@]}" "$SRC/" "$INSTALL_DIR/"
 mkdir -p "$INSTALL_DIR"/{cache,output,server/logs,server/work}
-chmod 755 "$INSTALL_DIR"/build.sh "$INSTALL_DIR"/run-server.sh 2>/dev/null || true
+chmod 755 "$INSTALL_DIR"/build.sh "$INSTALL_DIR"/run-server.sh \
+    "$INSTALL_DIR"/lib/expand-root.sh 2>/dev/null || true
 
 # ------------------------------------------------------------ python venv
 VENV="$INSTALL_DIR/venv"

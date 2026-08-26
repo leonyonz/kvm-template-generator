@@ -107,10 +107,14 @@ base_customize() {
 
     # CloudStack compatibility (datasource + password management)
     vc --upload "${A}/cloud/99-cloudstack.cfg:/etc/cloud/cloud.cfg.d/99-cloudstack.cfg"
-    vc --upload "${A}/cloudstack/set-guest-password:/usr/local/bin/cloudstack-set-guest-password"
+    vc --upload "${A}/cloudstack/set-guest-sshkey-password:/usr/local/bin/cloudstack-set-guest-sshkey-password"
     vc --upload "${A}/cloudstack/cloudstack-password.service:/etc/systemd/system/cloudstack-password.service"
-    vc --run-command 'chmod 755 /usr/local/bin/cloudstack-set-guest-password'
+    vc --run-command 'chmod 755 /usr/local/bin/cloudstack-set-guest-sshkey-password'
     vc --run-command 'systemctl enable cloudstack-password.service qemu-guest-agent'
+
+    # allow password + key ssh login (needed for CloudStack Password Enabled)
+    vc --run-command 'mkdir -p /etc/ssh/sshd_config.d && printf "PasswordAuthentication yes\\nPubkeyAuthentication yes\\n" > /etc/ssh/sshd_config.d/99-cloudstack.conf && chmod 644 /etc/ssh/sshd_config.d/99-cloudstack.conf'
+    [[ "$FAMILY" == "rpm" ]] && vc --run-command 'restorecon -R -v /usr/local/bin/cloudstack-set-guest-sshkey-password /etc/ssh/sshd_config.d/99-cloudstack.conf 2>/dev/null || true'
 
     # Serial console (Proxmox "serial terminal" + CS console)
     if [[ "$FAMILY" == "deb" ]]; then
@@ -189,7 +193,7 @@ print_report() {
  CLOUDSTACK register:
    Hypervisor: KVM | Format: QCOW2 | BIOS boot
    OS Type: $( [[ $DIST == ubuntu ]] && echo "Ubuntu $(echo $VER_TAG | cut -d. -f1).04 (64-bit)" || echo "$DIST ${VER_TAG} (64-bit)" )
-   [x] Password Enabled   (our set-guest-password service handles it)
+   [x] Password Enabled   (our cloudstack password+sshkey agent handles it)
 =====================================================================
 EOF
 }
